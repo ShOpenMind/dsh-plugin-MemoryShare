@@ -38,6 +38,11 @@ https://github.com/ShOpenMind/dsh-plugin-MemoryShare/releases/latest/download/ds
 
 点「安装」,再到插件列表里把 **dsh-plugin-memory-share** 启用,然后 **重启一次 DSH**。
 
+> ⚠️ **一定要填上面这个 `.tgz` 地址,不要填仓库地址。**
+> 仓库地址会被展开成 `main` 分支的即时快照,内容每次提交都变,pnpm 校验哈希对不上就会报
+> `ERR_PNPM_TARBALL_INTEGRITY` 并中止——**而且这个错会连带挡住之后所有插件的安装**。
+> 万一已经被卡住:终端里跑 `cd ~/.dsh/profiles/desktop && npx pnpm install --update-checksums` 再重试。
+
 ### 方式 2:本地 tarball
 
 把 `dsh-plugin-memory-share-0.2.0.tgz` 放到 `~/Downloads`,然后:
