@@ -1,0 +1,63 @@
+{
+  "name": "dsh-plugin-memory-share",
+  "version": "0.2.0",
+  "description": "dsh-plugin-MemoryShare — 跨会话共享的长期记忆：被动注入系统提示词，配 memory_save / memory_recall / memory_forget 三个工具，以及「设置 → 插件 → 记忆」管理页。",
+  "type": "module",
+  "license": "MIT",
+  "author": {
+    "name": "ShOpenMind"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./remote": "./lib/remote.js",
+    "./typert": "./lib/typert.host.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "memory",
+    "long-term-memory"
+  ],
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "test": "node tools/host-test.mjs && node tools/cordis-mount-test.mjs",
+    "test:host": "node tools/host-test.mjs",
+    "test:cordis": "node tools/cordis-mount-test.mjs",
+    "demo": "node tools/demo.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "zod": "^4.4.0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-api-gateway"
+      ],
+      "external": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-api-gateway"
+      ]
+    }
+  }
+}
