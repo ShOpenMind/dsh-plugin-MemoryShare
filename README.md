@@ -62,7 +62,7 @@ Long-term memories shared by every session on this machine. Use them as context,
 ### 方式一：一条命令（推荐）
 
 ```powershell
-dsh plugin --profile desktop add "file:C:/Users/11625/Documents/deepseek-harness/default-workspace/dsh-plugin-MemoryShare"
+dsh plugin --profile desktop add "file:C:/path/to/dsh-plugin-MemoryShare"
 ```
 
 `dsh plugin` 是 DSH 启动器提供的 pnpm 封装，它一次做三件事：写进 profile 的 `dependencies`、追加到 `dsh.profile.bundles`、触发宿主运行时热加载。**装完即生效**，不需要你再手动重启（Electron 外壳不退出，但后端 host 会重载一次，正在跑的会话会短暂中断）。
@@ -74,7 +74,7 @@ dsh plugin --profile desktop add "file:C:/Users/11625/Documents/deepseek-harness
 ```json
 {
   "dependencies": {
-    "dsh-plugin-memory-share": "file:C:/Users/11625/Documents/deepseek-harness/default-workspace/dsh-plugin-MemoryShare"
+    "dsh-plugin-memory-share": "file:C:/path/to/dsh-plugin-MemoryShare"
   },
   "dsh": {
     "profile": {
