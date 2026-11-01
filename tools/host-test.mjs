@@ -347,6 +347,22 @@ test('管理服务：ctx.memoryShare 的 list / update / remove', async (dir) =>
   equal((await service.remove('不存在的 id')).removed, 0, '删不存在的返回 0')
 })
 
+test('injectFor=top：子代理不注入，主会话照常', async (dir) => {
+  const host = await mount({ dataDir: dir })
+  await host.tools.get('memory_save').execute({ text: '全局事实' }, { agent: agentFor('C:\\w', 's1') })
+  const section = host.sections.get('memory-share')
+
+  ok(section.text({ agent: agentFor('C:\\w', 's1') }).includes('全局事实'), '顶层会话注入')
+  const derived = { id: 'sub', session: { header: { id: 'sub', cwd: 'C:\\w', origin: 'subagent' } } }
+  equal(section.text({ agent: derived }), '', '子代理不注入')
+  const forked = { id: 'fork', session: { header: { id: 'fork', cwd: 'C:\\w', parentSessionId: 's1' } } }
+  equal(section.text({ agent: forked }), '', '有父会话标记的也不注入')
+  ok(section.text({ agent: { id: 'unknown' } }).includes('全局事实'), '无标记按顶层处理')
+
+  const hostAll = await mount({ dataDir: dir, injectFor: 'all' })
+  ok(hostAll.sections.get('memory-share').text({ agent: derived }).includes('全局事实'), 'all 模式下子代理也注入')
+})
+
 /* ------------------------------------------------------------------ 运行 */
 
 let passed = 0

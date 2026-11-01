@@ -124,6 +124,7 @@ dsh plugin --profile desktop add "file:C:/path/to/dsh-plugin-MemoryShare"
 | `maxChars` | `1600` | 整段渲染上限；`0` = 完全不注入 |
 | `entryChars` | `240` | 单条正文上限（超出按空白截断） |
 | `maxEntries` | `500` | 条目总数上限，超出按作用域优先级淘汰 |
+| `injectFor` | `top` | `top` = 只给顶层会话注入，子代理/派生会话不背这段；`all` = 所有 agent 都注入 |
 | `injectInPrompt` | `true` | 关掉后只剩工具，不再被动注入 |
 | `guidance` | `true` | 是否附带那段用法指引 |
 | `refreshIntervalMs` | `30000` | 跨进程同步的轮询间隔；`0` = 只在启动/建会话时读 |
