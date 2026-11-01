@@ -61,11 +61,22 @@ Long-term memories shared by every session on this machine. Use them as context,
 
 ### 方式一：一条命令（推荐）
 
+**从 release 装**（不用 clone，选最新 tarball）：
+
+```powershell
+# 下载 https://github.com/ShOpenMind/dsh-plugin-MemoryShare/releases/latest 里的 .tgz 到本地，然后
+dsh plugin --profile desktop add "file:C:/path/to/dsh-plugin-memory-share-0.2.0.tgz"
+```
+
+**从 checkout 装**（要改代码时）：
+
 ```powershell
 dsh plugin --profile desktop add "file:C:/path/to/dsh-plugin-MemoryShare"
 ```
 
 `dsh plugin` 是 DSH 启动器提供的 pnpm 封装，它一次做三件事：写进 profile 的 `dependencies`、追加到 `dsh.profile.bundles`、触发宿主运行时热加载。**装完即生效**，不需要你再手动重启（Electron 外壳不退出，但后端 host 会重载一次，正在跑的会话会短暂中断）。
+
+> tarball 里已经包含了构建好的 `lib/client.js`，所以装完就有设置页，不需要你在本地跑 `npm run build`。
 
 ### 方式二：手动改 profile（没有 CLI 时）
 
