@@ -59,6 +59,11 @@ Long-term memories shared by every session on this machine. Use them as context,
 
 ## 安装
 
+> ⚠️ **填 release 的 `.tgz` 地址，不要填仓库地址。**
+> 仓库地址会被解析成 default 分支的 `main.tar.gz` 快照——内容随每次提交变化，而锁文件记的是旧内容的哈希，pnpm 会以 `ERR_PNPM_TARBALL_INTEGRITY` 中止安装，而且报错里根本看不出根因。
+> 正确写法：`https://github.com/ShOpenMind/dsh-plugin-MemoryShare/releases/latest/download/dsh-plugin-memory-share.tgz`
+> 已经被卡住的话：`cd ~/.dsh/profiles/<profile> && npx pnpm install --update-checksums`。
+
 ### 方式一：一条命令（推荐）
 
 **从 release 装**（不用 clone，选最新 tarball）：
