@@ -178,8 +178,10 @@ test('workspace 作用域：只在对应目录可见', async (dir) => {
   )
   includes(sectionText(host, 'C:\\work\\alpha', 's-alpha'), '本仓库用 pnpm', '同目录可见')
   excludes(sectionText(host, 'C:\\work\\beta', 's-beta'), '本仓库用 pnpm', '别的目录不可见')
-  // Windows 下大小写不同视为同一目录
-  includes(sectionText(host, 'c:\\WORK\\ALPHA', 's-alpha'), '本仓库用 pnpm', '大小写不敏感')
+  // 大小写不敏感只在 Windows 上成立；POSIX 下 'C:' 与 'c:' 是两个不同目录。
+  if (process.platform === 'win32') {
+    includes(sectionText(host, 'c:\\WORK\\ALPHA', 's-alpha'), '本仓库用 pnpm', '大小写不敏感')
+  }
 })
 
 test('session 作用域：只在对应会话可见', async (dir) => {

@@ -1,0 +1,111 @@
+# 在真实的 macOS 上验证「安装包」和「插件测试」。
+# 目的:把「在 Windows 上打包、靠猜能不能装」变成每次 push 都真跑一遍。
+name: macOS 验证
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  installer:
+    name: 安装包（macOS）
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 用与发布相同的方式打 tar.gz
+        run: |
+          git archive --format=tar.gz --output=install-memory-share-mac.tar.gz \
+            HEAD install-memory-share.command plugin.tgz
+
+      - name: 解压并检查可执行位
+        run: |
+          mkdir -p dist && tar xzf install-memory-share-mac.tar.gz -C dist
+          ls -l dist
+          if [ ! -x dist/install-memory-share.command ]; then
+            echo "::error::install-memory-share.command 丢了可执行位——这就是那次「没有正确的访问权限」"
+            exit 1
+          fi
+          test -f dist/plugin.tgz || { echo "::error::plugin.tgz 不在包里"; exit 1; }
+
+      - name: 在伪造的 profile 上真跑一次安装
+        run: |
+          set -euo pipefail
+          export FAKE_HOME="$(mktemp -d)"
+          P="$FAKE_HOME/.dsh/profiles/desktop"
+          mkdir -p "$P"
+          # 复刻她机器上的状态：mind-tree 来自 main 分支
+          cat > "$P/package.json" <<'JSON'
+          {
+            "name": "dsh-profile-desktop",
+            "private": true,
+            "dependencies": {
+              "dsh-plugin-mind-tree": "github:ShOpenMind/dsh-plugin-mind-tree#main"
+            },
+            "dsh": {
+              "profile": {
+                "bundles": ["@deepseek-ai/dsh-base", "dsh-plugin-mind-tree"]
+              }
+            }
+          }
+          JSON
+
+          cd dist
+          printf 'y\n' | HOME="$FAKE_HOME" ./install-memory-share.command
+
+          echo "--- 断言 ---"
+          node - "$P" <<'NODE'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const dir = process.argv[2]
+          const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'))
+          const fail = (msg) => { console.error('::error::' + msg); process.exit(1) }
+
+          const dep = pkg.dependencies?.['dsh-plugin-memory-share']
+          if (!dep || !dep.startsWith('file:')) fail('dependencies 里没有 dsh-plugin-memory-share')
+          const bundles = pkg.dsh?.profile?.bundles ?? []
+          if (!bundles.includes('dsh-plugin-memory-share')) fail('bundles 里没有 dsh-plugin-memory-share')
+          if (!bundles.includes('dsh-plugin-mind-tree')) fail('原有的 mind-tree bundle 被弄丢了')
+          if (pkg.dependencies['dsh-plugin-mind-tree'] !== 'github:ShOpenMind/dsh-plugin-mind-tree#main') {
+            fail('mind-tree 的依赖被意外改动')
+          }
+
+          const installed = path.join(dir, 'node_modules', 'dsh-plugin-memory-share', 'package.json')
+          if (!fs.existsSync(installed)) fail('插件没有被复制进 node_modules')
+          const meta = JSON.parse(fs.readFileSync(installed, 'utf8'))
+          if (meta.name !== 'dsh-plugin-memory-share') fail('复制进去的包名不对')
+          if (!fs.existsSync(path.join(dir, 'node_modules', 'dsh-plugin-memory-share', 'lib', 'client.js'))) {
+            fail('client.js 不在包里（设置页会没有）')
+          }
+          console.log('✓ 插件放置、依赖登记、bundles 追加全部正确')
+          NODE
+
+      - name: 再跑一次（幂等性：不能重复追加）
+        run: |
+          set -euo pipefail
+          export FAKE_HOME="$(mktemp -d)"
+          P="$FAKE_HOME/.dsh/profiles/desktop"
+          mkdir -p "$P"
+          echo '{"name":"x","dependencies":{},"dsh":{"profile":{"bundles":[]}}}' > "$P/package.json"
+          cd dist
+          printf 'y\n' | HOME="$FAKE_HOME" ./install-memory-share.command >/dev/null
+          printf 'y\n' | HOME="$FAKE_HOME" ./install-memory-share.command >/dev/null
+          node - "$P" <<'NODE'
+          const fs = require('node:fs')
+          const pkg = JSON.parse(fs.readFileSync(process.argv[2] + '/package.json', 'utf8'))
+          const hits = pkg.dsh.profile.bundles.filter((b) => b === 'dsh-plugin-memory-share').length
+          if (hits !== 1) { console.error(`::error::bundles 里出现了 ${hits} 次`); process.exit(1) }
+          console.log('✓ 重复安装不会重复追加')
+          NODE
+
+  plugin:
+    name: 插件测试（macOS）
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node tools/host-test.mjs
