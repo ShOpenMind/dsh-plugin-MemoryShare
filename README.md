@@ -172,17 +172,97 @@ dsh plugin --profile desktop add "file:C:/path/to/dsh-plugin-MemoryShare"
 ## 已知限制
 
 - **子代理也会看到记忆**。插件挂在全局，subagent 的系统提示词里同样有这一段。预算固定，成本可控，但语义上它们并不都需要。
-- **没有 UI**。增删改目前只有工具和手改 JSON 两条路。v0.2 计划补一个设置页（列表/编辑/删除/开关）。
+- **没有搜索和手工新建**。设置页可以看/改/删，但没有搜索框，也不能凭空新建一条（写记忆要带作用域和来源，属于工具面的职责）。
 - **检索是关键词，不是语义**。`memory_recall` 做的是大小写不敏感的子串匹配，中文按整词命中。好处是零依赖、行为可预测；坏处是同义改述搜不到。
 - **单机单用户假设**。DSH 是本地 harness，所以「全局」= 这台机器上的所有会话。没有多租户隔离。
 - **记忆会污染**。模型可能存进不该存的东西（临时结论、错误推断）。唯一可靠的对策是定期用 `memory_recall` 过一遍、用 `memory_forget` 清掉——这也是为什么 id 必须短、必须显示在提示词里。
 
 ---
 
+## 给写客户端插件的人
+
+这一节是踩出来的，不是读文档读出来的：DSH 的客户端插件 API 没有公开文档，以下四条全部来自「跑起来才发现」。
+
+### 一个能跑的客户端插件由四块组成
+
+| 块 | 内容 |
+|---|---|
+| `package.json` | `dsh.client = { platform: 'web', inject: [...], external: [...] }`，`inject` 列出的包要同时出现在 `external` |
+| `src/client.jsx` | **CJS 入口**（`const React = require('react')`），不是 ESM |
+| `tools/build.mjs` | esbuild 打 `format: 'cjs'` + `platform: 'browser'`，再包一层 `window.__ModuleLoader__.load({id, factory})` |
+| 注册 | `ctx.slots.inject(slotName, () => ctx.slots.register({...}, render))`，返回的 disposer 要在 `apply` 的返回值里释放 |
+
+`inject` 里声明的是**服务**，不是包名依赖：用到 `ctx.slots` 就得注入 `slots`，用到 `ctx.remote` 就得注入 `remote`。
+
+### 坑 1：远程方法名不能撞保留成员
+
+```
+client api: method "memoryShare/remove" conflicts with its namespace service
+```
+
+`@deepseek-ai/dsh-api-gateway` 挂载远程方法时会检查名字是否撞上 `RemoteNamespaceService` 的原型成员和 `REMOTE_NAMESPACE_FIELDS`（`ctx` / `empty` / `invokeRemote` 等）。`remove` 就在里面。
+
+**对策**：描述符里的 `method` 别用 `remove`、`get`、`set`、`list` 这类通用动词的裸名——本项目把删除叫 `forget`。撞了的话报错发生在 `$mount` 时，且只报第一个撞的，改完再跑可能撞第二个。
+
+### 坑 2：`$mount` 只能成功一次
+
+```
+client api: direct method memoryShare/list is already mounted
+```
+
+同一页面里只要有两个 bundle 实例（旧版本残留、StrictMode 双执行、热重载），第二次 `$mount` 就抛这个。
+
+**对策**：把挂载做成幂等——捕获 `already mounted` 视为成功，继续用命名空间；真正的挂载失败才向上抛。
+
+### 坑 3：`ctx.remote.<namespace>` 不能裸取
+
+```
+cannot get property "remote.memoryShare" without inject
+```
+
+命名空间服务是**独立注册的服务**，访问必须声明注入。正确写法是先 `$mount`，再：
+
+```js
+ctx.inject([`remote.${NAMESPACE}`], (scope) => {
+  const service = scope.remote[NAMESPACE]   // 只有在这个 scope 里才拿得到
+})
+```
+
+`inject` 会在命名空间出现时回调，所以「先挂载、再 inject」的顺序不能反——反过来会永远等不到。
+
+### 坑 4：部署时 `lib/client.js` 会被进程占用
+
+`Copy-Item` 覆盖会报「文件正由另一进程使用」。**对策**：先复制成 `client.next.js`，再用 `Move-Item -Force` 原子替换。
+
+### 最小调用骨架
+
+```js
+let servicePromise
+function ensureService(ctx) {
+  if (servicePromise === undefined) {
+    servicePromise = (async () => {
+      try { await ctx.remote.$mount(TYPERT_REMOTE) }
+      catch (e) { if (!String(e?.message).includes('already mounted')) throw e }
+      return await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('命名空间未出现')), 8000)
+        ctx.inject([`remote.${NAMESPACE}`], (scope) => {
+          clearTimeout(timer)
+          resolve(scope.remote[NAMESPACE])
+        })
+      })
+    })().catch((e) => { servicePromise = undefined; throw e })
+  }
+  return servicePromise
+}
+```
+
+---
+
 ## 开发
 
 ```bash
-node tools/host-test.mjs          # 15 个用例：注入、作用域、去重、预算、TTL、转义、并发、坏文件恢复…
+node tools/build.mjs              # src/client.jsx → lib/client.js（改客户端后必跑）
+node tools/host-test.mjs          # 16 个用例：注入、作用域、去重、预算、TTL、转义、并发、坏文件恢复…
 node tools/cordis-mount-test.mjs  # 用真实 cordis 挂载一次，验证 inject / effect / 注销
 node tools/demo.mjs               # 打印一段真实渲染结果，肉眼看效果与 token 成本
 ```
@@ -190,10 +270,14 @@ node tools/demo.mjs               # 打印一段真实渲染结果，肉眼看�
 `host-test` 用一个最小 fake host（`{ systemPrompt, tools, effect, on }`）挂载插件，和真实加载器走同一条 `apply()` 路径；`cordis-mount-test` 则直接从 DSH 安装目录加载 `@deepseek-ai/cordis`，验证服务注入、`ctx.effect` 注册与 `ctx.registry.delete()` 注销后段和工具都被撤掉（找不到 cordis 时自动 SKIP，保持可移植）。
 
 ```
-lib/store.js    存储：原子写、去重、作用域、TTL、淘汰
-lib/render.js   渲染：排序、预算裁剪、标签转义（纯函数）
-lib/index.js    插件入口：提示词段 + 三个工具 + 新鲜度刷新
-tools/          测试与演示
+lib/store.js         存储：原子写、去重、作用域、TTL、淘汰
+lib/render.js        渲染：排序、预算裁剪、标签转义（纯函数）
+lib/index.js         宿主入口：提示词段 + 三个工具 + ctx.memoryShare 服务
+lib/remote.js        远程契约：zod schema + typert 描述符（宿主与客户端共用）
+lib/typert.host.js   反射清单，由 DSH 的 typert 加载器校验
+src/client.jsx       设置页源码（CJS，构建前）
+lib/client.js        构建产物（由 tools/build.mjs 生成，一并提交）
+tools/               构建、测试与演示
 ```
 
 MIT License.
