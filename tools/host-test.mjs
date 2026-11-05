@@ -365,6 +365,37 @@ test('injectFor=top：子代理不注入，主会话照常', async (dir) => {
   ok(hostAll.sections.get('memory-share').text({ agent: derived }).includes('全局事实'), 'all 模式下子代理也注入')
 })
 
+test('相关性：按当前话题筛选，user 条目始终保留', async (dir) => {
+  const host = await mount({ dataDir: dir })
+  const exec = { agent: agentFor('C:\\work\\alpha', 's-alpha') }
+  const save = host.tools.get('memory_save').execute
+  await save({ text: 'Vic2 阵营系统用 alliance_with = TAG 判定结盟', scope: 'workspace', tags: ['vic2', 'mod'] }, exec)
+  await save({ text: 'DSH 插件安装用 dsh plugin add 命令，包名形如 dsh-plugin-xxx', scope: 'workspace', tags: ['dsh', 'plugin'] }, exec)
+  await save({ text: '用户偏好中文回答', scope: 'user' }, exec)
+
+  const say = (sessionId, text) => {
+    for (const fn of host.listeners.get('session/event') ?? []) {
+      fn({
+        session: { header: { id: sessionId } },
+        event: { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } },
+      })
+    }
+  }
+
+  say('s-alpha', '帮我装一个 DSH 插件')
+  let block = sectionText(host, 'C:\\work\\alpha', 's-alpha')
+  includes(block, 'dsh plugin add', '话题相关的条目保留')
+  excludes(block, 'alliance_with', '话题无关的条目被过滤掉')
+  includes(block, '用户偏好中文回答', 'user 条目不受筛选影响')
+
+  say('s-alpha', '维多利亚2 的阵营怎么结盟')
+  block = sectionText(host, 'C:\\work\\alpha', 's-alpha')
+  includes(block, 'alliance_with', '话题切换后相关条目重新出现')
+
+  block = sectionText(host, 'C:\\work\\alpha', 's-other')
+  includes(block, 'alliance_with', '没有对话记录的会话退回全量注入')
+})
+
 /* ------------------------------------------------------------------ 运行 */
 
 let passed = 0
