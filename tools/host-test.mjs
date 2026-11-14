@@ -396,6 +396,42 @@ test('相关性：按当前话题筛选，user 条目始终保留', async (dir) 
   includes(block, 'alliance_with', '没有对话记录的会话退回全量注入')
 })
 
+test('bootSnapshot=session：同一会话复用首帧，不随记忆变化', async (dir) => {
+  const host = await mount({ dataDir: dir, bootSnapshot: 'session' })
+  const exec = { agent: agentFor('C:\\work\\alpha', 's-alpha') }
+  await host.tools.get('memory_save').execute({ text: '第一条记忆' }, exec)
+
+  const first = sectionText(host, 'C:\\work\\alpha', 's-alpha')
+  includes(first, '第一条记忆', '首次渲染包含已有记忆')
+
+  await host.tools.get('memory_save').execute({ text: '第二条记忆' }, exec)
+  const second = sectionText(host, 'C:\\work\\alpha', 's-alpha')
+  excludes(second, '第二条记忆', '同会话第二次渲染被冻结')
+  equal(second, first, '冻结后内容完全一致')
+
+  const other = sectionText(host, 'C:\\work\\alpha', 's-beta')
+  includes(other, '第二条记忆', '新会话看到最新记忆')
+})
+
+test('会话级开关：配置与服务方法都能关掉注入', async (dir) => {
+  const host = await mount({ dataDir: dir, disabledSessions: ['s-off'] })
+  const exec = { agent: agentFor('C:\\work\\alpha', 's-off') }
+  await host.tools.get('memory_save').execute({ text: '会话开关测试' }, exec)
+
+  equal(sectionText(host, 'C:\\work\\alpha', 's-off'), '', '配置里的会话不注入')
+
+  const service = host.ctx.memoryShare
+  const on = await service.setSessionEnabled('s-off', true)
+  equal(on.enabled, true, '服务方法重新开启')
+  includes(sectionText(host, 'C:\\work\\alpha', 's-off'), '会话开关测试', '开启后恢复注入')
+
+  await service.setSessionEnabled('s-live', false)
+  equal(sectionText(host, 'C:\\work\\alpha', 's-live'), '', '运行时关闭即时生效')
+
+  const state = await service.listSessions()
+  includes(state.disabled.join(','), 's-live', 'listSessions 反映当前关闭的会话')
+})
+
 /* ------------------------------------------------------------------ 运行 */
 
 let passed = 0

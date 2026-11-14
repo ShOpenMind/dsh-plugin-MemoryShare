@@ -143,6 +143,8 @@ dsh plugin --profile desktop add "file:C:/path/to/dsh-plugin-MemoryShare"
 | `relevance` | `true` | 按当前会话最近发言给 workspace/session 条目打分，0 分不注入；`user` 条目永远注入 |
 | `relevanceTopK` | `4` | 筛选后最多保留几条非 user 条目 |
 | `relevanceKeepRecent` | `0` | 全都不相关时退回最近 n 条；`0` = 一条不留 |
+| `bootSnapshot` | `live` | `live` 每步按最新记忆渲染；`session` 本会话首帧冻结，记忆再变也不失效前缀缓存 |
+| `disabledSessions` | `[]` | 这些会话 id 不注入；也可用 `ctx.memoryShare.setSessionEnabled(id, bool)` 运行时开关 |
 | `injectInPrompt` | `true` | 关掉后只剩工具，不再被动注入 |
 | `guidance` | `true` | 是否附带那段用法指引 |
 | `refreshIntervalMs` | `30000` | 跨进程同步的轮询间隔；`0` = 只在启动/建会话时读 |
@@ -287,6 +289,15 @@ function ensureService(ctx) {
 ```
 
 ---
+
+## 状态检查
+
+```sh
+dsh-plugin-memory-share          # 人读
+dsh-plugin-memory-share --json   # 给脚本用
+```
+
+输出磁盘版本、**运行中版本**（插件启动时写的 `runtime.json`）、条目数与作用域分布。两边版本不一致时退出码为 1——用来回答「我装的和跑的是不是同一个版本」。
 
 ## 开发
 
