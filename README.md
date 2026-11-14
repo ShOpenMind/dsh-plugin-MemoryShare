@@ -64,13 +64,23 @@ Long-term memories shared by every session on this machine. Use them as context,
 > 正确写法：`https://github.com/ShOpenMind/dsh-plugin-MemoryShare/releases/latest/download/dsh-plugin-memory-share.tgz`
 > 已经被卡住的话：`cd ~/.dsh/profiles/<profile> && npx pnpm install --update-checksums`。
 
-### 方式一：一条命令（推荐）
+### 方式一：从 npm 装（最省事）
+
+```sh
+dsh plugin install dsh-plugin-memory-share
+```
+
+或直接在 Harness 的「插件」面板里搜索 `dsh-plugin-memory-share`。
+
+npm 上的版本是不可变的——发出去就不能改，所以不会出现「同一个地址内容变了、哈希对不上」这种事。
+
+### 方式二：从 GitHub release 装（npm 装不上时）
 
 **从 release 装**（不用 clone，选最新 tarball）：
 
 ```powershell
 # 下载 https://github.com/ShOpenMind/dsh-plugin-MemoryShare/releases/latest 里的 .tgz 到本地，然后
-dsh plugin --profile desktop add "file:C:/path/to/dsh-plugin-memory-share-0.2.0.tgz"
+dsh plugin --profile desktop add "file:C:/path/to/dsh-plugin-memory-share-0.3.1.tgz"
 ```
 
 **从 checkout 装**（要改代码时）：
@@ -83,7 +93,7 @@ dsh plugin --profile desktop add "file:C:/path/to/dsh-plugin-MemoryShare"
 
 > tarball 里已经包含了构建好的 `lib/client.js`，所以装完就有设置页，不需要你在本地跑 `npm run build`。
 
-### 方式二：手动改 profile（没有 CLI 时）
+### 方式三：手动改 profile（没有 CLI 时）
 
 1. 编辑 `~/.dsh/profiles/desktop/package.json`：
 

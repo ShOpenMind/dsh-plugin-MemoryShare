@@ -5,7 +5,16 @@
   "type": "module",
   "license": "MIT",
   "author": {
-    "name": "ShOpenMind"
+    "name": "ShOpenMind",
+    "url": "https://github.com/ShOpenMind"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShOpenMind/dsh-plugin-MemoryShare.git"
+  },
+  "homepage": "https://github.com/ShOpenMind/dsh-plugin-MemoryShare#readme",
+  "bugs": {
+    "url": "https://github.com/ShOpenMind/dsh-plugin-MemoryShare/issues"
   },
   "main": "lib/index.js",
   "exports": {
@@ -27,7 +36,11 @@
     "deepseek-harness",
     "plugin",
     "memory",
-    "long-term-memory"
+    "long-term-memory",
+    "dsh-plugin",
+    "dsh-bundle",
+    "dsh-market",
+    "agent-memory"
   ],
   "scripts": {
     "build": "node tools/build.mjs",
