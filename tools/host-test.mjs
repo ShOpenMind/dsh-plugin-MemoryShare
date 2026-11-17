@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as plugin from '../lib/index.js'
-import { MemoryStore, isExpired } from '../lib/store.js'
+import { MemoryStore, isExpired, normalizeKey } from '../lib/store.js'
 import { renderMemoryBlock } from '../lib/render.js'
 import { buildReport, formatReport } from '../lib/audit.js'
 
@@ -516,7 +516,9 @@ test('memory_update：合并多条并省下字数', async (dir) => {
 })
 
 test('冷热：老库没有 tier 字段时按热记忆读入', async (dir) => {
-  const legacy = entry('老库里的项目事实', { id: 'mlegacy1', scope: 'workspace', key: 'c:\\work\\alpha' })
+  // 用归一化后的目录键：Windows 上 `C:\work\alpha` 解析成 `c:\work\alpha`，
+  // macOS 上会拼到 cwd 下面——写死字面量在 macOS 查不到（CI 就是这么红的）。
+  const legacy = entry('老库里的项目事实', { id: 'mlegacy1', scope: 'workspace', key: normalizeKey('C:\\work\\alpha') })
   delete legacy.tier
   seedStore(dir, [legacy])
   const host = await mount({ dataDir: dir })
