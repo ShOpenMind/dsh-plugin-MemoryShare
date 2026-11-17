@@ -125,6 +125,9 @@ function entry(text, overrides = {}) {
     key: overrides.key ?? '',
     fingerprint: text.toLowerCase(),
     tags: overrides.tags ?? [],
+    // 读盘时缺 tier 的老条目按 hot 处理（老库没有冷热概念，不能升级即变冷）；
+    // 测试种子数据跟随同一口径，需要冷记忆的用例显式传 tier: 'cold'。
+    tier: overrides.tier ?? 'hot',
     createdAt: overrides.createdAt ?? now,
     updatedAt: overrides.updatedAt ?? now,
     source: {},
@@ -251,9 +254,9 @@ test('预算：条目再多也不超过 maxChars，且 user 优先', async (dir)
   const host = await mount({ dataDir: dir, maxChars: 900, entryChars: 80 })
   const text = sectionText(host, 'C:\\work\\alpha', 's-alpha')
   ok(text.length <= 900, `渲染长度 ${text.length} 未超过 900`)
-  includes(text, '[user]', 'user 级条目优先进入预算')
+  includes(text, '[user·hot]', 'user 级条目优先进入预算')
   includes(text, 'memory_recall', '被裁掉时给出检索提示')
-  excludes(text, '[session]', '预算紧张时会话级先出局')
+  excludes(text, '[session·hot]', '预算紧张时会话级先出局')
 })
 
 test('TTL：过期条目不再注入', async (dir) => {
@@ -366,13 +369,15 @@ test('injectFor=top：子代理不注入，主会话照常', async (dir) => {
   ok(hostAll.sections.get('memory-share').text({ agent: derived }).includes('全局事实'), 'all 模式下子代理也注入')
 })
 
-test('相关性：按当前话题筛选，user 条目始终保留', async (dir) => {
+test('冷热：hot 条目始终注入，cold 条目按当前话题加载', async (dir) => {
   const host = await mount({ dataDir: dir })
   const exec = { agent: agentFor('C:\\work\\alpha', 's-alpha') }
   const save = host.tools.get('memory_save').execute
-  await save({ text: 'Vic2 阵营系统用 alliance_with = TAG 判定结盟', scope: 'workspace', tags: ['vic2', 'mod'] }, exec)
-  await save({ text: 'DSH 插件安装用 dsh plugin add 命令，包名形如 dsh-plugin-xxx', scope: 'workspace', tags: ['dsh', 'plugin'] }, exec)
-  await save({ text: '用户偏好中文回答', scope: 'user' }, exec)
+  const vic2 = await save({ text: 'Vic2 阵营系统用 alliance_with = TAG 判定结盟', scope: 'workspace', tags: ['vic2', 'mod'] }, exec)
+  const dsh = await save({ text: 'DSH 插件安装用 dsh plugin add 命令，包名形如 dsh-plugin-xxx', scope: 'workspace', tags: ['dsh', 'plugin'] }, exec)
+  const pref = await save({ text: '用户偏好中文回答', scope: 'user', tier: 'hot' }, exec)
+  equal(vic2.tier, 'cold', 'memory_save 默认写冷记忆')
+  equal(pref.tier, 'hot', '显式 tier: hot 会落盘为热记忆')
 
   const say = (sessionId, text) => {
     for (const fn of host.listeners.get('session/event') ?? []) {
@@ -383,18 +388,37 @@ test('相关性：按当前话题筛选，user 条目始终保留', async (dir) 
     }
   }
 
-  say('s-alpha', '帮我装一个 DSH 插件')
+  // 没聊过天：不知道话题，宁可吵不可哑 —— 全量注入。
   let block = sectionText(host, 'C:\\work\\alpha', 's-alpha')
-  includes(block, 'dsh plugin add', '话题相关的条目保留')
-  excludes(block, 'alliance_with', '话题无关的条目被过滤掉')
-  includes(block, '用户偏好中文回答', 'user 条目不受筛选影响')
+  includes(block, 'alliance_with', '没有对话记录时退回全量注入')
+
+  say('s-alpha', '帮我装一个 DSH 插件')
+  block = sectionText(host, 'C:\\work\\alpha', 's-alpha')
+  includes(block, 'dsh plugin add', '话题相关的冷条目注入')
+  excludes(block, 'alliance_with', '话题无关的冷条目不注入')
+  includes(block, '用户偏好中文回答', '热条目话题无关也保留')
+  includes(block, 'cold not loaded', '标明还有冷记忆没加载')
 
   say('s-alpha', '维多利亚2 的阵营怎么结盟')
   block = sectionText(host, 'C:\\work\\alpha', 's-alpha')
-  includes(block, 'alliance_with', '话题切换后相关条目重新出现')
+  includes(block, 'alliance_with', '话题切换后相关冷条目重新出现')
+  includes(block, 'dsh plugin add', '上一话题还在 1200 字窗口里，算同一个话题，不该抖掉')
 
-  block = sectionText(host, 'C:\\work\\alpha', 's-other')
-  includes(block, 'alliance_with', '没有对话记录的会话退回全量注入')
+  // 灌满谈话窗口（1200 字上限，这条 1400 字），把前面的词彻底挤出滚动窗口 —— 这才算真换了话题。
+  say('s-alpha', '随便聊点别的。'.repeat(200))
+  // 每轮提示词都会渲染一次，留任资格也就用掉一次：这一轮还在，下一轮才退。
+  block = sectionText(host, 'C:\\work\\alpha', 's-alpha')
+  includes(block, 'alliance_with', '换话题后的第一轮还留任一次，避免措辞抖动')
+  say('s-alpha', '继续随便聊聊。')
+  block = sectionText(host, 'C:\\work\\alpha', 's-alpha')
+  excludes(block, 'alliance_with', '窗口里已经没有相关词，冷记忆退出')
+  excludes(block, 'dsh plugin add', '其它冷记忆同样退出')
+  includes(block, '用户偏好中文回答', '热记忆不跟着话题走')
+  includes(block, 'cold not loaded', '提示还有冷记忆可以 recall')
+
+  const recalled = await host.tools.get('memory_recall').execute({ query: 'dsh plugin add' }, exec)
+  ok(recalled.entries.some((item) => item.id === dsh.id), '退出注入≠删除：memory_recall 还能捞回来')
+  equal(recalled.entries.find((item) => item.id === dsh.id).tier, 'cold', 'memory_recall 回报冷热档')
 })
 
 test('bootSnapshot=session：同一会话复用首帧，不随记忆变化', async (dir) => {
@@ -491,6 +515,52 @@ test('memory_update：合并多条并省下字数', async (dir) => {
   excludes(sectionText(host), '不新增任何运行时依赖', '注入的是合并后的句子')
 })
 
+test('冷热：老库没有 tier 字段时按热记忆读入', async (dir) => {
+  const legacy = entry('老库里的项目事实', { id: 'mlegacy1', scope: 'workspace', key: 'c:\\work\\alpha' })
+  delete legacy.tier
+  seedStore(dir, [legacy])
+  const host = await mount({ dataDir: dir })
+  for (const fn of host.listeners.get('session/event') ?? []) {
+    fn({
+      session: { header: { id: 's-alpha' } },
+      event: { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '今天天气不错' }] } },
+    })
+  }
+  const block = sectionText(host, 'C:\\work\\alpha', 's-alpha')
+  includes(block, '[workspace·hot] mlegacy1', '缺字段按 hot 渲染')
+  includes(block, '老库里的项目事实', '话题不相关也注入 —— 升级不能把已有记忆悄悄变冷')
+})
+
+test('冷热：memory_update 能改档，合并保留热记忆', async (dir) => {
+  const host = await mount({ dataDir: dir })
+  const exec = { agent: agentFor('C:\\work\\alpha', 's-alpha') }
+  const save = host.tools.get('memory_save').execute
+  const update = host.tools.get('memory_update').execute
+  const a = await save({ text: '用户偏好简短回答，不要客套。', tier: 'hot' }, exec)
+  const b = await save({ text: '用户偏好一句话说清结论。' }, exec)
+  equal(readStore(dir).entries.find((item) => item.id === b.id).tier, 'cold', '不传 tier 默认冷记忆')
+  await update({ id: b.id, tier: 'hot' }, exec)
+  equal(readStore(dir).entries.find((item) => item.id === b.id).tier, 'hot', '可以手动升成热记忆')
+  await update({ id: a.id, tier: 'cold' }, exec)
+  equal(readStore(dir).entries.find((item) => item.id === a.id).tier, 'cold', '也能降回冷记忆')
+  await update({ id: a.id, tier: 'hot' }, exec)
+  const merged = await update({ ids: [a.id, b.id], text: '用户偏好简短回答：一句话说清结论，不要客套。' }, exec)
+  equal(readStore(dir).entries.find((item) => item.id === merged.id).tier, 'hot', '合并结果任一条是 hot 就保持 hot')
+})
+
+test('冷热：预算紧张时先砍冷记忆', async (dir) => {
+  const text = renderMemoryBlock({
+    entries: [
+      entry('冷'.repeat(300), { id: 'mcoldbig', tier: 'cold' }),
+      entry('热'.repeat(100), { id: 'mhotbig', tier: 'hot' }),
+    ],
+    maxChars: 620,
+  })
+  includes(text, 'mhotbig', '热记忆先占预算')
+  excludes(text, 'mcoldbig', '装不下时先砍冷记忆')
+  includes(text, 'cold not loaded', '说明被砍掉的是冷记忆')
+})
+
 test('memory_save：近重复时给出 similar 提示', async (dir) => {
   const host = await mount({ dataDir: dir })
   const save = host.tools.get('memory_save')
@@ -519,7 +589,7 @@ test('截断：按句子边界切，并标注 …(+Nc)', async () => {
   ok(line !== undefined, '渲染出该条目')
   const marker = line.match(/…\(\+(\d+)c\)$/)
   ok(marker !== null, '尾部有 …(+Nc) 标注')
-  const prefix = '- [user] mtest01 '
+  const prefix = '- [user·hot] mtest01 '
   equal(line.startsWith(prefix), true, '条目行格式不变')
   const body = line.slice(prefix.length, line.length - marker[0].length).trimEnd()
   equal(long.startsWith(body), true, '保留的是原文前缀')
@@ -559,6 +629,22 @@ test('成本审计：按真实注入块算预算，而不是正文加总', async
   const text = formatReport(tight, 300)
   includes(text, '实际注入', '报告说实际注入多少字')
   includes(text, '被省略', '报告点名有条目被省略')
+})
+
+test('冷热：审计把常驻成本和满载上限分开报', async (dir) => {
+  seedStore(dir, [
+    entry('甲'.repeat(120), { id: 'mhot01', scope: 'user', tier: 'hot' }),
+    entry('乙'.repeat(240), { id: 'mcold01', scope: 'workspace', key: 'C:\\work\\alpha', tier: 'cold' }),
+    entry('丙'.repeat(240), { id: 'mcold02', scope: 'workspace', key: 'C:\\work\\alpha', tier: 'cold' }),
+  ])
+  const report = await buildReport({ dir, maxChars: 1600 })
+  equal(report.tiers.hot.entries, 1, '热记忆一条')
+  equal(report.tiers.cold.entries, 2, '冷记忆两条')
+  ok(report.residentChars < report.renderedChars, '常驻成本低于满载上限')
+  const text = formatReport(report, 1600)
+  includes(text, '常驻成本', '报告常驻成本')
+  includes(text, '满载上限', '报告满载上限')
+  includes(text, '热 1 条', '报出冷热条数')
 })
 
 /* ------------------------------------------------------------------ 运行 */

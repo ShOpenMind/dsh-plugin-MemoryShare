@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-memory-share",
-  "version": "0.5.0",
-  "description": "dsh-plugin-MemoryShare — 跨会话共享的长期记忆：被动注入系统提示词，配 memory_save / memory_update / memory_recall / memory_forget 四个工具、成本审计（--audit），以及「设置 → 插件 → 记忆」管理页。",
+  "version": "0.6.0",
+  "description": "dsh-plugin-MemoryShare — 跨会话共享的长期记忆（冷热两档：hot 每会话常驻、cold 按当前话题加载）：被动注入系统提示词，配 memory_save / memory_update / memory_recall / memory_forget 四个工具、成本审计（--audit），以及「设置 → 插件 → 记忆」管理页。",
   "type": "module",
   "license": "MIT",
   "author": {
