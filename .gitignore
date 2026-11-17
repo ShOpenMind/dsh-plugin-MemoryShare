@@ -6,4 +6,5 @@ node_modules/
 Thumbs.db
 *.tgz
 *.zip
+*.tar.gz
 pkg-mac/

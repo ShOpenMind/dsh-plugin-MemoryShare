@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import * as plugin from '../lib/index.js'
 import { MemoryStore, isExpired } from '../lib/store.js'
 import { renderMemoryBlock } from '../lib/render.js'
+import { buildReport, formatReport } from '../lib/audit.js'
 
 /* ------------------------------------------------------------------ 断言 */
 
@@ -540,6 +541,24 @@ test('清理：过期超过 30 天的条目会被真正删除', async (dir) => {
   const file = readStore(dir)
   equal(file.entries.some((item) => item.text === '早就过期的临时记忆'), false, '过了宽限期就被清掉')
   equal(file.entries.length, 1, '只剩新写的那条')
+})
+
+test('成本审计：按真实注入块算预算，而不是正文加总', async (dir) => {
+  seedStore(dir, [
+    entry('甲'.repeat(200), { id: 'maudit01', scope: 'user', key: 'global' }),
+    entry('乙'.repeat(200), { id: 'maudit02', scope: 'user', key: 'global' }),
+  ])
+  const roomy = await buildReport({ dir, maxChars: 1600 })
+  equal(roomy.dropped, 0, '预算宽裕时全部注入')
+  equal(roomy.shown, 2, '两条都在注入块里')
+  ok(roomy.renderedChars > roomy.totalChars, '渲染成本含指引与 id 前缀，比正文加总大')
+  const tight = await buildReport({ dir, maxChars: 300 })
+  ok(tight.renderedChars <= 300, '渲染不超预算')
+  equal(tight.shown + tight.dropped, tight.entries, '注入 + 省略 = 总条数')
+  ok(tight.dropped > 0, '预算紧时有条目被省略')
+  const text = formatReport(tight, 300)
+  includes(text, '实际注入', '报告说实际注入多少字')
+  includes(text, '被省略', '报告点名有条目被省略')
 })
 
 /* ------------------------------------------------------------------ 运行 */

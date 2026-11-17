@@ -307,21 +307,22 @@ dsh-plugin-memory-share --audit --json
 `--audit` 是只读的记账，不写库、也不因为版本不一致而报错（审计是「该收拾了」，不是故障）。它回答三个问题：
 
 ```
-条目          13 条 · 3.0 KiB · 约 1597 token
-预算          1600 字注入上限 —— 库内 3118 字，195%，超出部分靠 memory_recall 查
-作用域         user 9 条/1745 字   workspace 4 条/1373 字   session 0 条/0 字
+条目          8 条 · 1.1 KiB · 约 614 token
+预算          1600 字注入上限 —— 实际注入 1546 字，97%，余量只剩 54 字
+条目覆盖        8 条全部注入，无省略（正文 1136 字，其余是指引与 id 前缀）
+作用域         user 7 条/1031 字   workspace 1 条/105 字   session 0 条/0 字
 
 按正文成本排序（正文字符 / 估算 token / 更新于 / id）
-    427c   213t    12d  workspace m36twv7e213  《维多利亚2》3.03 52汉化版装在 F:\oldfiles\vic2.3.03…
+    228c    90t     0d  user      mkjgm2ibdce  鲸鱼娘桌宠在 C:\Users\11625\whale-girl-desktop（Electron）：主进程
 ```
 
-预算那一行是重点：**超过 100% 就意味着有记忆永远进不了提示词**——它们只在模型主动 `memory_recall` 时才出现，等于「存了但没用」。看到 100% 以上，就该用 `memory_update` 合并、或把文档里已有的内容改成一句指针。`--json` 输出同一份数据（`entries` / `budget` / `similarPairs` / `expired`），方便接进自己的脚本。
+预算那两行是重点，而且**按真实渲染算，不是正文加总**：注入块还带用法指引、`[scope] id` 前缀，条目超长还会被截断——这堆开销在旧版审计里是看不见的（实测正文 1146 字时「72%」，真实渲染已经 1546 字 / 97%）。`条目覆盖` 直接点名谁被挤掉了：只要出现「N 条被省略」，那些记忆就只在模型主动 `memory_recall` 时才出现，等于「存了但没用」，该用 `memory_update` 合并、或把文档里已有的内容改成一句指针。`--json` 输出同一份数据（`entries` / `budget` / `renderedChars` / `shown` / `dropped` / `similarPairs` / `expired`），方便接进自己的脚本。
 
 ## 开发
 
 ```bash
 node tools/build.mjs              # src/client.jsx → lib/client.js（改客户端后必跑）
-node tools/host-test.mjs          # 26 个用例：注入、作用域、去重、合并、预算、TTL、清理、转义、并发、坏文件恢复…
+node tools/host-test.mjs          # 27 个用例：注入、作用域、去重、合并、预算、TTL、清理、转义、并发、坏文件恢复…
 node tools/cordis-mount-test.mjs  # 用真实 cordis 挂载一次，验证 inject / effect / 注销
 node tools/demo.mjs               # 打印一段真实渲染结果，肉眼看效果与 token 成本
 node tools/audit.mjs              # 等价于 bin/status.mjs --audit，改报告排版时用
