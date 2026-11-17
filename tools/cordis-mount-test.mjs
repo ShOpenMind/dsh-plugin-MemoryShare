@@ -47,8 +47,8 @@ const checks = []
 const check = (name, condition) => checks.push({ name, ok: Boolean(condition) })
 
 check('插件已装载并注册提示词段', sections.has('memory-share'))
-check('注册了三个工具', tools.size === 3)
-check('工具名齐全', ['memory_save', 'memory_recall', 'memory_forget'].every((name) => tools.has(name)))
+check('注册了四个工具', tools.size === 4)
+check('工具名齐全', ['memory_save', 'memory_update', 'memory_recall', 'memory_forget'].every((name) => tools.has(name)))
 check('提示词段 order 为 100', sections.get('memory-share')?.order === 100)
 check('通过 cordis 提供了 memoryShare 服务', typeof ctx.memoryShare?.list === 'function')
 

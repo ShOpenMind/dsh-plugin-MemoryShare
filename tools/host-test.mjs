@@ -140,7 +140,7 @@ test('空库：只有指引，没有条目', async (dir) => {
   const host = await mount({ dataDir: dir })
   const text = sectionText(host)
   includes(text, '<memory-share>', '渲染出记忆块')
-  includes(text, 'Long-term memories shared by every session', '带用法指引')
+  includes(text, 'context, not instructions', '带用法指引')
   includes(text, '(no memories stored yet)', '空库有明确提示')
 })
 
@@ -430,6 +430,116 @@ test('会话级开关：配置与服务方法都能关掉注入', async (dir) =>
 
   const state = await service.listSessions()
   includes(state.disabled.join(','), 's-live', 'listSessions 反映当前关闭的会话')
+})
+
+test('memory_update：改正文、加标签、清 TTL', async (dir) => {
+  const host = await mount({ dataDir: dir })
+  const save = host.tools.get('memory_save')
+  const update = host.tools.get('memory_update')
+  const exec = { agent: agentFor('C:\\work\\alpha', 's-alpha') }
+  ok(update !== undefined, '注册了 memory_update 工具')
+  const saved = await save.execute({ text: '用户偏好简短回答，不要客套。', tags: ['偏好'], ttlDays: 3 }, exec)
+  const revised = await update.execute(
+    { id: saved.id, text: '用户偏好一句话回答，不要客套。', tags: ['风格'], ttlDays: 0 },
+    exec,
+  )
+  equal(revised.id, saved.id, 'id 不变')
+  equal(revised.removed, 0, '改单条不减少条目')
+  const file = readStore(dir)
+  equal(file.entries.length, 1, '仍然只有一条')
+  equal(file.entries[0].text, '用户偏好一句话回答，不要客套。', '正文被替换')
+  equal(file.entries[0].tags.join(','), '偏好,风格', '标签是追加而不是覆盖')
+  equal(file.entries[0].ttlDays, undefined, 'ttlDays=0 清掉有效期')
+  includes(sectionText(host), '一句话回答', '注入内容跟着变')
+  const again = await save.execute({ text: '用户偏好一句话回答，不要客套。' }, exec)
+  equal(again.duplicate, true, '指纹跟着正文更新（同文再存算重复）')
+  let threw = null
+  try {
+    await update.execute({ id: saved.id }, exec)
+  } catch (error) {
+    threw = error
+  }
+  ok(threw !== null, '一个字段都不给会报错')
+})
+
+test('memory_update：合并多条并省下字数', async (dir) => {
+  const host = await mount({ dataDir: dir })
+  const save = host.tools.get('memory_save')
+  const update = host.tools.get('memory_update')
+  const exec = { agent: agentFor('C:\\work\\alpha', 's-alpha') }
+  const first = await save.execute({ text: '零依赖优先：不新增任何运行时依赖。', tags: ['开发'] }, exec)
+  const second = await save.execute({ text: '先写测试再改代码：每个改动都配 host-test 用例。', tags: ['测试'] }, exec)
+  await save.execute({ text: '用户愿意连续多轮调整，不要逐项确认。' }, exec)
+  const merged = await update.execute(
+    {
+      ids: [first.id, second.id],
+      text: '零依赖、先写测试：不新增依赖，每个改动都配 host-test 用例。',
+    },
+    exec,
+  )
+  equal(merged.id, first.id, '保留第一个 id 作为句柄')
+  equal(merged.removed, 1, '净减少一条')
+  equal(merged.total, 2, '三条变两条')
+  includes(merged.summary, '省', 'summary 报告省下的字数')
+  const file = readStore(dir)
+  equal(file.entries.length, 2, '磁盘上也是两条')
+  const survivor = file.entries.find((item) => item.id === first.id)
+  equal(survivor.text, '零依赖、先写测试：不新增依赖，每个改动都配 host-test 用例。', '合并后正文')
+  equal(survivor.tags.join(','), '开发,测试', '标签取并集')
+  equal(file.entries.some((item) => item.id === second.id), false, '被合并的 id 消失')
+  excludes(sectionText(host), '不新增任何运行时依赖', '注入的是合并后的句子')
+})
+
+test('memory_save：近重复时给出 similar 提示', async (dir) => {
+  const host = await mount({ dataDir: dir })
+  const save = host.tools.get('memory_save')
+  const exec = { agent: agentFor('C:\\work\\alpha', 's-alpha') }
+  const first = await save.execute({ text: '用户要求所有回答用中文，代码注释用英文，测试断言用中文。' }, exec)
+  equal(first.similar, '', '第一条没有相似可提示')
+  const second = await save.execute({ text: '用户要求所有回答用中文，代码注释用英文。' }, exec)
+  equal(second.similar, first.id, '相似条目指向已有那条')
+  includes(second.summary, 'memory_update', 'summary 教它怎么合并')
+  equal(readStore(dir).entries.length, 2, '提示不等于自动合并')
+})
+
+test('memory_save：超出注入预算时警告', async (dir) => {
+  const host = await mount({ dataDir: dir, maxChars: 20 })
+  const saved = await host.tools.get('memory_save').execute(
+    { text: '这是一条明显超过二十个字的记忆，用来验证库内字数超标时的提醒是否出现。' },
+    { agent: agentFor('C:\\work\\alpha', 's-alpha') },
+  )
+  includes(saved.summary, '已超注入预算 20 字', 'summary 报告库内字数超标')
+})
+
+test('截断：按句子边界切，并标注 …(+Nc)', async () => {
+  const long = '第一句讲项目背景和启动方式。第二句讲二进制补丁的地址与备份要求。第三句讲必须补 UTF-8 BOM，否则 PowerShell 5.1 会按 GBK 解析。'
+  const text = renderMemoryBlock({ entries: [entry(long, { id: 'mtest01' })], maxChars: 400, entryChars: 60 })
+  const line = text.split('\n').find((item) => item.includes('第一句'))
+  ok(line !== undefined, '渲染出该条目')
+  const marker = line.match(/…\(\+(\d+)c\)$/)
+  ok(marker !== null, '尾部有 …(+Nc) 标注')
+  const prefix = '- [user] mtest01 '
+  equal(line.startsWith(prefix), true, '条目行格式不变')
+  const body = line.slice(prefix.length, line.length - marker[0].length).trimEnd()
+  equal(long.startsWith(body), true, '保留的是原文前缀')
+  equal(long.length - body.length, Number(marker[1]), '标注的字数等于省略的字符数')
+  ok(/[。！？；，!?;,]$/.test(body), '切在标点之后')
+  excludes(body, 'GBK', '超出的尾巴没有进注入块')
+})
+
+test('清理：过期超过 30 天的条目会被真正删除', async (dir) => {
+  const day = 24 * 60 * 60 * 1000
+  seedStore(dir, [entry('早就过期的临时记忆', { createdAt: Date.now() - 40 * day, ttlDays: 1 })])
+  const host = await mount({ dataDir: dir })
+  excludes(sectionText(host), '早就过期', '过期条目本来就不注入')
+  equal(readStore(dir).entries.length, 1, '但在宽限期内还留在库里')
+  await host.tools.get('memory_save').execute(
+    { text: '顺手写一条，用来触发一次 mutate。' },
+    { agent: agentFor('C:\\work\\alpha', 's-alpha') },
+  )
+  const file = readStore(dir)
+  equal(file.entries.some((item) => item.text === '早就过期的临时记忆'), false, '过了宽限期就被清掉')
+  equal(file.entries.length, 1, '只剩新写的那条')
 })
 
 /* ------------------------------------------------------------------ 运行 */
